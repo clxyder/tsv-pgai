@@ -9,7 +9,7 @@ class Base(DeclarativeBase):
 class Wiki(Base):
     __tablename__ = "wiki"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[str] = mapped_column(primary_key=True)
     url: Mapped[str]
     title: Mapped[str]
     text: Mapped[str]

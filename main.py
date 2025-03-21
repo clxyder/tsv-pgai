@@ -1,3 +1,5 @@
+from time import sleep
+
 from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import sessionmaker
 from pgai.vectorizer import CreateVectorizer
@@ -8,7 +10,7 @@ from pgai.vectorizer.configuration import (
 )
 
 from config import Settings
-from models import BlogPost, Base
+from models import Wiki, Base
 
 # Create database engine and session
 engine = create_engine(Settings.db_url)
@@ -36,12 +38,14 @@ def create_vectorizer():
     ).to_sql()
 
     # execute vectorizer_statement
-    r = session.execute(vectorizer_statement)
-    print(r)
+    r = session.execute(text(vectorizer_statement))
+    results = r.fetchall()
+    for row in results:
+        print(row)
 
 
 def load_wiki_data():
-    r = session.execute(
+    r = session.execute(text(
         """
         SELECT ai.load_dataset(
             'wikimedia/wikipedia',
@@ -51,19 +55,22 @@ def load_wiki_data():
             max_batches=>1,
             if_table_exists=>'append'
         );
-        """
+        """)
     )
-    print(r)
+    results = r.fetchall()
+    for row in results:
+        print(row)
 
-def search():
+
+def search(query: str):
     similar_posts = (
-        session.query(BlogPost.content_embeddings)
+        session.query(Wiki.content_embeddings)
         .order_by(
-            BlogPost.content_embeddings.embedding.cosine_distance(
-                func.ai.openai_embed(
+            Wiki.content_embeddings.embedding.cosine_distance(
+                func.ai.embedding_litellm(
                     Settings.model_name,
-                    "search query",
-                    text("dimensions => 768")
+                    query,
+                    text(f"dimensions => {Settings.embedding_dim}")
                 )
             )
         )
@@ -74,19 +81,35 @@ def search():
     print(similar_posts)
 
 
+def check_vectorizer_status():
+    # SELECT * from ai.vectorizer_errors
+    r = session.execute(text("select * from ai.vectorizer_status;"))
+    results = r.fetchall()
+    for row in results:
+        print(row)
+
+
 def main():
     print("Hello from tsv-pgai!")
+    
     # Create tables
     Base.metadata.create_all(bind=engine)
     
-    # create vectorizer
-    create_vectorizer()
-    
     # load dataset
+    load_wiki_data()
     
+    # create vectorizer
+    # create_vectorizer()
+    
+    # try:
+    #     while True:
+    #         check_vectorizer_status()
+    #         sleep(5)
+    # except KeyboardInterrupt:
+    #     pass
     
     # run search
-
+    # search("properties of light")
 
 if __name__ == "__main__":
     main()
