@@ -19,14 +19,14 @@ session = SessionLocal()
 
 def create_vectorizer():
     vectorizer_statement = CreateVectorizer(
-        source="blog",
-        target_table='blog_embeddings',
+        source="wiki",
+        target_table='wiki_embeddings',
         embedding=EmbeddingLitellmConfig(
-            model='ollama/nomic-embed-text',
+            model=Settings.model_name,
             dimensions=Settings.embedding_dim,
         ),
         chunking=ChunkingCharacterTextSplitterConfig(
-            chunk_column='content',
+            chunk_column='text',
             chunk_size=800,
             chunk_overlap=400,
             separator='.',
@@ -40,13 +40,28 @@ def create_vectorizer():
     print(r)
 
 
+def load_wiki_data():
+    r = session.execute(
+        """
+        SELECT ai.load_dataset(
+            'wikimedia/wikipedia',
+            '20231101.en',
+            table_name=>'wiki',
+            batch_size=>5,
+            max_batches=>1,
+            if_table_exists=>'append'
+        );
+        """
+    )
+    print(r)
+
 def search():
     similar_posts = (
         session.query(BlogPost.content_embeddings)
         .order_by(
             BlogPost.content_embeddings.embedding.cosine_distance(
                 func.ai.openai_embed(
-                    "text-embedding-3-small",
+                    Settings.model_name,
                     "search query",
                     text("dimensions => 768")
                 )
@@ -66,6 +81,11 @@ def main():
     
     # create vectorizer
     create_vectorizer()
+    
+    # load dataset
+    
+    
+    # run search
 
 
 if __name__ == "__main__":

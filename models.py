@@ -6,12 +6,13 @@ from config import Settings
 class Base(DeclarativeBase):
     pass
 
-class BlogPost(Base):
-    __tablename__ = "blog_posts"
+class Wiki(Base):
+    __tablename__ = "wiki"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    url: Mapped[str]
     title: Mapped[str]
-    content: Mapped[str]
+    text: Mapped[str]
 
     # Add vector embeddings for the content field
     content_embeddings = vectorizer_relationship(
