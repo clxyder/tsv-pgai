@@ -1,7 +1,9 @@
+from typing import List
 from time import sleep
 
-from sqlalchemy import create_engine, func, text, exc
+from sqlalchemy import create_engine, func, text, exc, Sequence
 from sqlalchemy.orm import sessionmaker
+
 from pgai.vectorizer import CreateVectorizer
 from pgai.vectorizer.configuration import (
     EmbeddingLitellmConfig,
@@ -19,37 +21,50 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 session = SessionLocal()
 
 
-def create_vectorizer():
-    vectorizer_statement = CreateVectorizer(
-        source=Settings.db_table_name,
-        target_table=Settings.db_target_table_name,
-        embedding=EmbeddingOllamaConfig(
-            model=Settings.model_name,
-            dimensions=Settings.embedding_dim,
-        ),
-        chunking=ChunkingCharacterTextSplitterConfig(
-            chunk_column=Settings.db_chunk_column,
-            chunk_size=800,
-            chunk_overlap=400,
-            separator='.',
-            is_separator_regex=False
-        ),
-        formatting=FormattingPythonTemplateConfig(template='$title - $chunk')
-    ).to_sql()
+def create_vectorizer() -> None:
 
-    # execute vectorizer_statement
-    r = session.execute(text(vectorizer_statement))
-    session.commit()
+    vectorizer_created = False
+    status = get_vectorizer_status()
+    for row in status:
+        if Settings.db_target_table_name in row[2]:
+            vectorizer_created = True
 
-    results = r.fetchall()
-    for row in results:
-        print(row)
+    if not vectorizer_created:
+        vectorizer_statement = CreateVectorizer(
+            source=Settings.db_table_name,
+            target_table=Settings.db_target_table_name,
+            embedding=EmbeddingOllamaConfig(
+                model=Settings.model_name,
+                dimensions=Settings.embedding_dim,
+            ),
+            chunking=ChunkingCharacterTextSplitterConfig(
+                chunk_column=Settings.db_chunk_column,
+                chunk_size=800,
+                chunk_overlap=400,
+                separator='.',
+                is_separator_regex=False
+            ),
+            formatting=FormattingPythonTemplateConfig(template='$title - $chunk')
+        ).to_sql()
+
+        # execute vectorizer_statement
+        r = session.execute(text(vectorizer_statement))
+        session.commit()
+
+        print("Successfully created vectorizer.")
+    else:
+        print("Vectorizer already created.")
 
 
-def load_data():
-        
-    try:
-        r = session.execute(text(
+
+def load_data() -> None:
+
+    entries = session.query(BlogPost).count()
+
+    if entries > 0:
+        print("Dataset already loaded.")
+    else:
+        session.execute(text(
             """
             INSERT INTO blog_posts (id, url, title, authors, content, meta)
             VALUES
@@ -99,20 +114,17 @@ def load_data():
         session.commit()
 
         print("Successfully loaded dataset.")
-    except exc.IntegrityError:
-        print("Dataset already loaded.")
 
 
-
-def search(query: str):
+def search(query: str) -> List:
     similar_posts = (
         session.query(BlogPost.content_embeddings)
         .order_by(
             BlogPost.content_embeddings.embedding.cosine_distance(
-                func.ai.embedding_litellm(
+                func.ai.ollama_embed(
                     Settings.model_name,
                     query,
-                    text(f"dimensions => {Settings.embedding_dim}")
+                    # text(f"dimensions => {Settings.embedding_dim}")
                 )
             )
         )
@@ -120,15 +132,15 @@ def search(query: str):
         .all()
     )
     
-    print(similar_posts)
+    return similar_posts
 
 
-def check_vectorizer_status():
+def get_vectorizer_status() -> Sequence:
     # SELECT * from ai.vectorizer_errors
     r = session.execute(text("select * from ai.vectorizer_status;"))
-    results = r.fetchall()
-    for row in results:
-        print(row)
+    session.commit()
+
+    return r.fetchall() 
 
 
 def main():
@@ -138,21 +150,16 @@ def main():
     Base.metadata.create_all(bind=engine)
     
     # load dataset
-    # load_data()
+    load_data()
     
     # create vectorizer
     create_vectorizer()
     
-    # try:
-    #     while True:
-    #         check_vectorizer_status()
-    #         sleep(5)
-    # except KeyboardInterrupt:
-    #     pass
-    
     # run search
-    # search("properties of light")
+    ret = search("good food")
+
+    for r in ret:
+        print(str(r))
 
 if __name__ == "__main__":
     main()
-    
