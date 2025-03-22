@@ -15,6 +15,7 @@ class Wiki(Base):
     text: Mapped[str]
 
     # Add vector embeddings for the content field
-    content_embeddings = vectorizer_relationship(
-        dimensions=Settings.embedding_dim,
-    )
+    # content_embeddings = vectorizer_relationship(
+    #     dimensions=Settings.embedding_dim,
+    #     target_table='wiki_embeddings',
+    # )
