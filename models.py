@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
     }
 
 class BlogPost(Base):
-    __tablename__ = Settings.db_table_name
+    __tablename__ = Settings.db_blog_table_name
 
     id: Mapped[int] = mapped_column(primary_key=True)
     url: Mapped[str]
@@ -24,5 +24,19 @@ class BlogPost(Base):
     # Add vector embeddings for the content field
     content_embeddings = vectorizer_relationship(
         dimensions=Settings.embedding_dim,
-        target_table=Settings.db_target_table_name,
+        target_table=Settings.db_blog_target_table_name,
+    )
+
+class Wiki(Base):
+    __tablename__ = Settings.db_wiki_table_name
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    url: Mapped[str]
+    title: Mapped[str]
+    text: Mapped[str]
+
+    # Add vector embeddings for the content field
+    content_embeddings = vectorizer_relationship(
+        dimensions=Settings.embedding_dim,
+        target_table=Settings.db_wiki_target_table_name,
     )

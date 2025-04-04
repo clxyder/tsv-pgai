@@ -13,7 +13,7 @@ from pgai.vectorizer.configuration import (
 )
 
 from config import Settings
-from models import BlogPost, Base
+from models import Base, BlogPost, Wiki
 
 # Create database engine and session
 engine = create_engine(Settings.db_url)
@@ -21,24 +21,25 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 session = SessionLocal()
 
 
-def create_vectorizer() -> None:
+def create_vectorizer(table_name: str, target_table_name: str, chunk_column: str) -> None:
 
     vectorizer_created = False
     status = get_vectorizer_status()
     for row in status:
-        if Settings.db_target_table_name in row[2]:
+        if target_table_name in row[2]:
             vectorizer_created = True
+            break
 
     if not vectorizer_created:
         vectorizer_statement = CreateVectorizer(
-            source=Settings.db_table_name,
-            target_table=Settings.db_target_table_name,
+            source=table_name,
+            target_table=target_table_name,
             embedding=EmbeddingOllamaConfig(
                 model=Settings.model_name,
                 dimensions=Settings.embedding_dim,
             ),
             chunking=ChunkingCharacterTextSplitterConfig(
-                chunk_column=Settings.db_chunk_column,
+                chunk_column=chunk_column,
                 chunk_size=800,
                 chunk_overlap=400,
                 separator='.',
@@ -48,21 +49,21 @@ def create_vectorizer() -> None:
         ).to_sql()
 
         # execute vectorizer_statement
-        r = session.execute(text(vectorizer_statement))
+        session.execute(text(vectorizer_statement))
         session.commit()
 
-        print("Successfully created vectorizer.")
+        print(f"Successfully created vectorizer for {table_name}.")
     else:
-        print("Vectorizer already created.")
+        print(f"Vectorizer for {table_name} already created.")
 
 
 
-def load_data() -> None:
+def load_blog_data() -> None:
 
     entries = session.query(BlogPost).count()
 
     if entries > 0:
-        print("Dataset already loaded.")
+        print(f"Blog dataset already loaded with {entries} entries.")
     else:
         session.execute(text(
             """
@@ -113,10 +114,34 @@ def load_data() -> None:
         )
         session.commit()
 
-        print("Successfully loaded dataset.")
+        print("Successfully loaded blog dataset.")
 
 
-def search(query: str) -> List:
+def load_wiki_data() -> None:
+
+    entries = session.query(Wiki).count()
+
+    if entries > 0:
+        print(f"Wikipedia dataset already loaded with {entries} entries.")
+    else:
+        session.execute(text(
+            """
+            SELECT ai.load_dataset(
+                'wikimedia/wikipedia',
+                '20231101.en',
+                table_name=>'wiki',
+                batch_size=>5,
+                max_batches=>1,
+                if_table_exists=>'append'
+            );
+            """)
+        )
+        session.commit()
+
+        print("Successfully loaded wiki dataset.")
+
+
+def search_blogs(query: str) -> List:
     similar_posts = (
         session.query(BlogPost.content_embeddings)
         .order_by(
@@ -124,7 +149,23 @@ def search(query: str) -> List:
                 func.ai.ollama_embed(
                     Settings.model_name,
                     query,
-                    # text(f"dimensions => {Settings.embedding_dim}")
+                )
+            )
+        )
+        .limit(5)
+        .all()
+    )
+    
+    return similar_posts
+
+def search_wiki(query: str) -> List:
+    similar_posts = (
+        session.query(Wiki.content_embeddings)
+        .order_by(
+            Wiki.content_embeddings.embedding.cosine_distance(
+                func.ai.ollama_embed(
+                    Settings.model_name,
+                    query,
                 )
             )
         )
@@ -150,16 +191,39 @@ def main():
     Base.metadata.create_all(bind=engine)
     
     # load dataset
-    load_data()
+    load_blog_data()
+    load_wiki_data()
     
     # create vectorizer
-    create_vectorizer()
+    create_vectorizer(
+        Settings.db_blog_table_name,
+        Settings.db_blog_target_table_name,
+        Settings.db_blog_chunk_column,
+    )
+
+    create_vectorizer(
+        Settings.db_wiki_table_name,
+        Settings.db_wiki_target_table_name,
+        Settings.db_wiki_chunk_column,
+    )
     
     # run search
-    ret = search("good food")
+    ret = search_blogs("good food")
 
+    print("blog search results:")
     for r in ret:
-        print(str(r))
+        # print(vars(r))
+        # print(dir(r))
+        print(f"* {r.chunk}")
+        # print(f"{r.title} - {r.chunk}")
+
+    
+    ret = search_wiki("properties of light")
+
+    print("wiki search results:")
+    for r in ret:
+        print(f"* {r.chunk}")
+        # print(f"{r.title} - {r.chunk}")
 
 if __name__ == "__main__":
     main()
